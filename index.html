@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Ask-a-Measure — SSPBI Prototype</title>
+<style>
+  :root {
+    --bg: #f6f7fa; --panel: #ffffff; --border: #dde3ec;
+    --text: #16202e; --muted: #667389; --accent: #b8790a; --accent-soft: #fdf1dc;
+    --code-bg: #f1f3f7; --code-text: #1f2937; --good: #1f8a5f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0b1220; --panel: #121a2b; --border: #22304a;
+      --text: #e8edf5; --muted: #8592a8; --accent: #f2b134; --accent-soft: #2a2411;
+      --code-bg: #0e1626; --code-text: #dfe6f2; --good: #4fd699;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0b1220; --panel: #121a2b; --border: #22304a;
+    --text: #e8edf5; --muted: #8592a8; --accent: #f2b134; --accent-soft: #2a2411;
+    --code-bg: #0e1626; --code-text: #dfe6f2; --good: #4fd699;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: "IBM Plex Sans", -apple-system, Segoe UI, Roboto, sans-serif;
+    padding: 0 16px;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding-block: 22px; }
+  header { margin-bottom: 18px; }
+  header .eyebrow {
+    font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--accent); font-weight: 600;
+  }
+  header h1 { font-size: 19px; margin: 4px 0 4px; font-weight: 650; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--muted); font-size: 13px; max-width: 56ch; }
+
+  .ask-box {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px; display: flex; flex-direction: column; gap: 10px;
+  }
+  .ask-row { display: flex; gap: 8px; }
+  .ask-row input {
+    flex: 1; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text); font-size: 13.5px; outline: none;
+  }
+  .ask-row input:focus { border-color: var(--accent); }
+  .ask-row button {
+    padding: 10px 16px; border-radius: 8px; border: none; background: var(--accent);
+    color: #1a1200; font-weight: 600; font-size: 13px; cursor: pointer;
+  }
+  .ask-row button:hover { opacity: 0.9; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    font-size: 12px; color: var(--muted); border: 1px solid var(--border);
+    border-radius: 999px; padding: 4px 10px; cursor: pointer; background: transparent;
+  }
+  .chip:hover { color: var(--text); border-color: var(--accent); }
+
+  .result { margin-top: 16px; }
+  .result-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px;
+  }
+  .result-head {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .result-head .measure { font-weight: 650; font-size: 14.5px; }
+  .confidence {
+    font-size: 11px; padding: 2px 9px; border-radius: 999px; background: var(--accent-soft);
+    color: var(--accent); font-weight: 600; white-space: nowrap;
+  }
+  .explain { color: var(--muted); font-size: 13px; margin: 0 0 12px; line-height: 1.5; }
+  pre.code {
+    margin: 0; background: var(--code-bg); color: var(--code-text); border-radius: 8px;
+    padding: 12px 14px; font-size: 12.5px; overflow-x: auto; line-height: 1.55;
+    font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  }
+  .empty-state {
+    color: var(--muted); font-size: 13px; text-align: center; padding: 26px 10px;
+    border: 1px dashed var(--border); border-radius: 12px;
+  }
+  .disclaimer {
+    margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border);
+    color: var(--muted); font-size: 11.5px; line-height: 1.6;
+  }
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;650&family=JetBrains+Mono:wght@400;500&display=swap">
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">SSPBI — prototype</div>
+    <h1>Ask-a-Measure</h1>
+    <p>Type a plain-English question about AIM data and get back the matching SSPBI measure and its DAX — instead of hunting through the data-pane folder tree.</p>
+  </header>
+
+  <div class="ask-box">
+    <div class="ask-row">
+      <input id="q" placeholder="e.g. what's our NOI variance to budget this quarter?" />
+      <button id="ask-btn">Ask</button>
+    </div>
+    <div class="chips" id="chips"></div>
+  </div>
+
+  <div class="result" id="result"></div>
+
+  <div class="disclaimer">
+    Prototype only — matching runs on a small local keyword rule set (see <code>PROTOTYPE_NOTES.md</code>), not a live language model or the production measure store. It's meant to demonstrate the interaction, not ship as-is.
+  </div>
+</div>
+
+<script>
+// A small illustrative rule set standing in for a real NL→measure matcher.
+// Each entry: keywords to score against the question, the measure it maps to,
+// its DAX, and a one-line explanation. Real SSPBI has ~2,317 measures; this
+// prototype covers a handful of common CRE BI questions.
+const RULES = [
+  {
+    keywords: ["noi", "net operating income", "variance", "budget"],
+    measure: "NOI Budget Variance %",
+    explain: "Compares actual Net Operating Income to the budgeted figure for the selected period.",
+    dax: `NOI Budget Variance % :=
+DIVIDE(
+    [NOI Actual] - [NOI Budget],
+    [NOI Budget],
+    BLANK()
+)`
+  },
+  {
+    keywords: ["occupancy", "occupied", "vacancy"],
+    measure: "Physical Occupancy %",
+    explain: "Occupied units divided by total available units, as of the reporting date.",
+    dax: `Physical Occupancy % :=
+DIVIDE(
+    [Occupied Unit Count],
+    [Total Unit Count],
+    BLANK()
+)`
+  },
+  {
+    keywords: ["cam", "recovery", "recoveries", "reimbursement"],
+    measure: "Total Recovery Income",
+    explain: "Sums CAM, tax, and insurance recovery lines into a single recovery-income figure.",
+    dax: `Total Recovery Income :=
+[CAM Recovery] + [Tax Recovery] + [Insurance Recovery]`
+  },
+  {
+    keywords: ["rent", "gpr", "gross potential", "revenue"],
+    measure: "Gross Potential Rent (GPR)",
+    explain: "Base rent at full occupancy and market rate, before vacancy or concessions.",
+    dax: `Gross Potential Rent :=
+SUMX(
+    Units,
+    Units[Market Rent] * 1
+)`
+  },
+  {
+    keywords: ["irr", "return", "equity multiple", "cash-on-cash"],
+    measure: "Equity Multiple",
+    explain: "Total distributions plus residual value, divided by total equity invested.",
+    dax: `Equity Multiple :=
+DIVIDE(
+    [Total Distributions] + [Residual Value],
+    [Total Equity Invested],
+    BLANK()
+)`
+  }
+];
+
+const examples = [
+  "what's our NOI variance to budget this quarter?",
+  "how's physical occupancy trending?",
+  "show me CAM recovery for the portfolio",
+  "what's gross potential rent for this asset?",
+  "what's our equity multiple to date?"
+];
+
+function renderChips() {
+  const el = document.getElementById("chips");
+  el.innerHTML = "";
+  examples.forEach(ex => {
+    const btn = document.createElement("button");
+    btn.className = "chip";
+    btn.type = "button";
+    btn.textContent = ex;
+    btn.onclick = () => { document.getElementById("q").value = ex; runQuery(); };
+    el.appendChild(btn);
+  });
+}
+
+function scoreRule(rule, text) {
+  return rule.keywords.reduce((score, kw) => score + (text.includes(kw) ? 1 : 0), 0);
+}
+
+function runQuery() {
+  const text = document.getElementById("q").value.trim().toLowerCase();
+  const resultEl = document.getElementById("result");
+  if (!text) { resultEl.innerHTML = ""; return; }
+
+  let best = null, bestScore = 0;
+  RULES.forEach(r => {
+    const s = scoreRule(r, text);
+    if (s > bestScore) { bestScore = s; best = r; }
+  });
+
+  if (!best) {
+    resultEl.innerHTML = `<div class="empty-state">No matching measure in this prototype's rule set yet. Try one of the example questions above.</div>`;
+    return;
+  }
+
+  const confidence = bestScore >= 2 ? "high match" : "partial match";
+  const card = document.createElement("div");
+  card.className = "result-card";
+
+  const head = document.createElement("div");
+  head.className = "result-head";
+  const measureSpan = document.createElement("span");
+  measureSpan.className = "measure";
+  measureSpan.textContent = best.measure;
+  const confSpan = document.createElement("span");
+  confSpan.className = "confidence";
+  confSpan.textContent = confidence;
+  head.appendChild(measureSpan);
+  head.appendChild(confSpan);
+
+  const explain = document.createElement("p");
+  explain.className = "explain";
+  explain.textContent = best.explain;
+
+  const pre = document.createElement("pre");
+  pre.className = "code";
+  pre.textContent = best.dax;
+
+  card.appendChild(head);
+  card.appendChild(explain);
+  card.appendChild(pre);
+  resultEl.innerHTML = "";
+  resultEl.appendChild(card);
+}
+
+document.getElementById("ask-btn").addEventListener("click", runQuery);
+document.getElementById("q").addEventListener("keydown", e => { if (e.key === "Enter") runQuery(); });
+
+renderChips();
+document.getElementById("q").value = examples[0];
+runQuery();
+</script>
+
+</body>
+</html>
